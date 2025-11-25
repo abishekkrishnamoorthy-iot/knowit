@@ -7,15 +7,33 @@ import { getDatabase } from "firebase/database";
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyD5mM1x_jdCzoqQrUxBcKOVartj5hZu6DQ",
-  authDomain: "knowit-124ab.firebaseapp.com",
-  databaseURL: "https://knowit-124ab-default-rtdb.firebaseio.com",
-  projectId: "knowit-124ab",
-  storageBucket: "knowit-124ab.firebasestorage.app",
-  messagingSenderId: "442086397313",
-  appId: "1:442086397313:web:7a2055097a6aa5fce5c480",
-  measurementId: "G-LPRQV0TZ3W"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
+
+// Validate that all required Firebase config values are present
+const requiredEnvVars = [
+  'VITE_FIREBASE_API_KEY',
+  'VITE_FIREBASE_AUTH_DOMAIN',
+  'VITE_FIREBASE_DATABASE_URL',
+  'VITE_FIREBASE_PROJECT_ID',
+  'VITE_FIREBASE_STORAGE_BUCKET',
+  'VITE_FIREBASE_MESSAGING_SENDER_ID',
+  'VITE_FIREBASE_APP_ID'
+];
+
+const missingVars = requiredEnvVars.filter(varName => !import.meta.env[varName]);
+
+if (missingVars.length > 0) {
+  console.error('Missing required Firebase environment variables:', missingVars);
+  throw new Error(`Missing required Firebase environment variables: ${missingVars.join(', ')}`);
+}
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
