@@ -9,6 +9,16 @@ import {
 } from 'firebase/auth';
 import { ref, set, get } from 'firebase/database';
 import { auth, googleProvider, database } from '../config/firebase';
+import {
+  createPendingUser,
+  verifyPendingUserOTP,
+  movePendingUserToVerified,
+  resendPendingUserOTP,
+  getPendingUserPassword
+} from '../services/pendingUserService';
+import { sendVerificationEmail } from '../utils/emailService';
+
+const requireEmailVerification = import.meta.env.VITE_REQUIRE_EMAIL_VERIFICATION !== 'false';
 
 const AuthContext = createContext(null);
 
@@ -95,20 +105,118 @@ export const AuthProvider = ({ children }) => {
 
   const signup = async (email, password, name) => {
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const firebaseUser = userCredential.user;
+      if (!requireEmailVerification) {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const firebaseUser = userCredential.user;
 
-      // Update display name
-      if (name) {
-        await updateProfile(firebaseUser, { displayName: name });
+        if (name) {
+          await updateProfile(firebaseUser, { displayName: name });
+        }
+
+        const userProfile = await createUserProfile(firebaseUser, name);
+        setUser(userProfile);
+        return { status: 'verified', user: userProfile };
       }
 
-      // Create user profile in Realtime Database
-      const userProfile = await createUserProfile(firebaseUser, name);
-      setUser(userProfile);
+      // Create pending user first
+      const pendingUser = await createPendingUser({ name, email, password });
+      
+      // Send verification email
+      try {
+        await sendVerificationEmail({
+          name,
+          email,
+          otp: pendingUser.otp
+        });
+        console.log('Verification email sent successfully to:', email);
+      } catch (emailError) {
+        // If email sending fails, log the error but don't block signup
+        // The pending user is already created with the OTP, so user can resend from verification page
+        console.error('Failed to send verification email:', emailError);
+        console.error('Email error details:', {
+          message: emailError.message,
+          text: emailError.text,
+          status: emailError.status
+        });
+        // Still return pending status so user can go to verification page and resend
+        // The error will be shown when they try to resend
+      }
+      
+      return { status: 'pending', email };
     } catch (error) {
-      throw new Error(error.message);
+      // Handle Firebase Auth errors
+      if (error.code === 'auth/email-already-in-use') {
+        throw new Error('This email is already registered. Please sign in instead.');
+      } else if (error.code === 'auth/invalid-email') {
+        throw new Error('Invalid email address. Please check and try again.');
+      } else if (error.code === 'auth/weak-password') {
+        throw new Error('Password is too weak. Please choose a stronger password.');
+      }
+      throw new Error(error.message || 'Failed to create account. Please try again.');
     }
+  };
+
+  const resendVerificationCode = async (email) => {
+    if (!requireEmailVerification) {
+      throw new Error('Email verification is disabled.');
+    }
+
+    try {
+      const pendingUser = await resendPendingUserOTP(email);
+      
+      try {
+        await sendVerificationEmail({
+          name: pendingUser.name,
+          email: pendingUser.email,
+          otp: pendingUser.otp
+        });
+        console.log('Resend verification email sent successfully to:', email);
+      } catch (emailError) {
+        console.error('Failed to resend verification email:', emailError);
+        // Re-throw the email error so the UI can show it
+        throw new Error(emailError.message || 'Failed to send verification email. Please check your EmailJS configuration.');
+      }
+      
+      return pendingUser;
+    } catch (error) {
+      // Re-throw with better error message
+      if (error.message.includes('No pending verification')) {
+        throw new Error('No pending verification found. Please sign up again.');
+      } else if (error.message.includes('wait')) {
+        throw error; // Keep cooldown messages as-is
+      } else if (error.message.includes('locked')) {
+        throw error; // Keep lockout messages as-is
+      }
+      throw new Error(error.message || 'Failed to resend verification code.');
+    }
+  };
+
+  const verifyEmailOtp = async (email, otp) => {
+    if (!requireEmailVerification) {
+      return { status: 'disabled' };
+    }
+
+    const result = await verifyPendingUserOTP(email, otp);
+
+    if (result.status !== 'verified') {
+      return result;
+    }
+
+    const { pendingUser } = result;
+    const password = getPendingUserPassword(pendingUser);
+
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const firebaseUser = userCredential.user;
+
+    if (pendingUser.name) {
+      await updateProfile(firebaseUser, { displayName: pendingUser.name });
+    }
+
+    const userProfile = await createUserProfile(firebaseUser, pendingUser.name);
+    setUser(userProfile);
+    await movePendingUserToVerified(email);
+
+    return { status: 'success', user: userProfile };
   };
 
   const login = async (email, password) => {
@@ -148,7 +256,18 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, signup, signInWithGoogle, logout, loading }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        login,
+        signup,
+        verifyEmailOtp,
+        resendVerificationCode,
+        signInWithGoogle,
+        logout,
+        loading
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

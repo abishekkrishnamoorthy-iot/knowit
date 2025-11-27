@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Brain } from 'lucide-react';
+import { Brain, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { checkEmailExists } from '../services/emailValidationService';
 
 export default function Signup() {
   const [name, setName] = useState('');
@@ -11,12 +12,53 @@ export default function Signup() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [emailValidation, setEmailValidation] = useState({ checking: false, exists: false, message: '' });
+  const emailCheckTimeoutRef = useRef(null);
   const { signup, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
+
+  // Real-time email validation
+  useEffect(() => {
+    if (emailCheckTimeoutRef.current) {
+      clearTimeout(emailCheckTimeoutRef.current);
+    }
+
+    if (!email || !email.includes('@')) {
+      setEmailValidation({ checking: false, exists: false, message: '' });
+      return;
+    }
+
+    // Debounce email check
+    emailCheckTimeoutRef.current = setTimeout(async () => {
+      setEmailValidation({ checking: true, exists: false, message: '' });
+      const result = await checkEmailExists(email);
+      setEmailValidation({
+        checking: false,
+        exists: result.exists,
+        message: result.message || ''
+      });
+    }, 500);
+
+    return () => {
+      if (emailCheckTimeoutRef.current) {
+        clearTimeout(emailCheckTimeoutRef.current);
+      }
+    };
+  }, [email]);
+
+  const handleEmailChange = (e) => {
+    setEmail(e.target.value);
+    setError(''); // Clear error when user types
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    if (emailValidation.exists) {
+      setError(emailValidation.message || 'This email is already registered.');
+      return;
+    }
 
     if (password !== confirmPassword) {
       setError('Passwords do not match');
@@ -31,8 +73,12 @@ export default function Signup() {
     setLoading(true);
 
     try {
-      await signup(email, password, name);
-      navigate('/dashboard');
+      const result = await signup(email, password, name);
+      if (result?.status === 'pending') {
+        navigate(`/verify-email?email=${encodeURIComponent(email)}`);
+      } else if (result?.status === 'verified') {
+        navigate('/dashboard');
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -93,14 +139,40 @@ export default function Signup() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Email Address
               </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="you@example.com"
-                required
-              />
+              <div className="relative">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={handleEmailChange}
+                  className={`w-full px-4 py-3 pr-10 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
+                    emailValidation.exists
+                      ? 'border-red-300 bg-red-50'
+                      : email && !emailValidation.checking && !emailValidation.exists
+                      ? 'border-green-300 bg-green-50'
+                      : 'border-gray-300'
+                  }`}
+                  placeholder="you@example.com"
+                  required
+                />
+                {email && (
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    {emailValidation.checking ? (
+                      <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+                    ) : emailValidation.exists ? (
+                      <XCircle className="w-5 h-5 text-red-500" />
+                    ) : (
+                      <CheckCircle2 className="w-5 h-5 text-green-500" />
+                    )}
+                  </div>
+                )}
+              </div>
+              {emailValidation.message && (
+                <p className={`mt-2 text-sm ${
+                  emailValidation.exists ? 'text-red-600' : 'text-green-600'
+                }`}>
+                  {emailValidation.message}
+                </p>
+              )}
             </div>
 
             <div>

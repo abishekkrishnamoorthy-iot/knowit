@@ -3,6 +3,7 @@ import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import VerifyEmail from './pages/VerifyEmail';
 import Dashboard from './pages/Dashboard';
 import CreateQuiz from './pages/CreateQuiz';
 import BrowseQuizzes from './pages/BrowseQuizzes';
@@ -11,6 +12,8 @@ import ShareQuiz from './pages/ShareQuiz';
 import Leaderboard from './pages/Leaderboard';
 import Analytics from './pages/Analytics';
 import Admin from './pages/Admin';
+// Import test utility for EmailJS debugging (available in console as window.testEmailJS)
+import './utils/testEmailJS';
 
 function App() {
   return (
@@ -20,6 +23,7 @@ function App() {
           <Route path="/" element={<Navigate to="/login" />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
 
           <Route
             path="/dashboard"
