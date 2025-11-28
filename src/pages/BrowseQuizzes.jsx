@@ -12,8 +12,10 @@ export default function BrowseQuizzes() {
   useEffect(() => {
     const loadQuizzes = async () => {
       const quizzesData = await storage.getQuizzes();
-      setAllQuizzes(quizzesData);
-      setQuizzes(quizzesData);
+      // Filter to show only challenge mode quizzes (self-assessment are private to creator)
+      const challengeQuizzes = quizzesData.filter(quiz => quiz.mode === 'challenge');
+      setAllQuizzes(challengeQuizzes);
+      setQuizzes(challengeQuizzes);
     };
     loadQuizzes();
   }, []);
@@ -115,7 +117,7 @@ export default function BrowseQuizzes() {
               <div
                 key={quiz.id}
                 className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all p-6 cursor-pointer"
-                onClick={() => navigate(`/quiz/${quiz.id}`)}
+                onClick={() => navigate(`/quiz/${quiz.id}?from=app`)}
               >
                 <div className="flex justify-between items-start mb-4">
                   <h3 className="text-xl font-bold text-gray-900 flex-1 mr-2">

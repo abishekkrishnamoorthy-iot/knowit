@@ -1,0 +1,9 @@
+{
+  "crons": [
+    {
+      "path": "/api/check-expired-quizzes",
+      "schedule": "0 * * * *"
+    }
+  ]
+}
+

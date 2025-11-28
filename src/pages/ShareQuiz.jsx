@@ -1,26 +1,51 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Copy, CheckCircle2, Share2 } from 'lucide-react';
+import { ArrowLeft, Copy, CheckCircle2, Share2, Clock } from 'lucide-react';
 import { storage } from '../utils/storage';
+import { getTimeRemaining } from '../utils/expirationService';
 
 export default function ShareQuiz() {
   const { quizId } = useParams();
   const navigate = useNavigate();
   const [quiz, setQuiz] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [timeRemaining, setTimeRemaining] = useState(null);
 
   useEffect(() => {
     const loadQuiz = async () => {
       const loadedQuiz = await storage.getQuizById(quizId);
       if (loadedQuiz) {
         setQuiz(loadedQuiz);
+        if (loadedQuiz.expiresAt) {
+          const remaining = getTimeRemaining(loadedQuiz.expiresAt);
+          setTimeRemaining(remaining);
+        }
       }
     };
     loadQuiz();
   }, [quizId]);
 
+  // Update time remaining every minute
+  useEffect(() => {
+    if (!quiz || !quiz.expiresAt) return;
+    
+    const interval = setInterval(() => {
+      const remaining = getTimeRemaining(quiz.expiresAt);
+      setTimeRemaining(remaining);
+    }, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, [quiz]);
+
   const handleCopy = () => {
-    const shareLink = `${window.location.origin}/quiz/${quizId}`;
+    // Fix for Vercel: Use environment variable or construct URL safely
+    const getOrigin = () => {
+      if (typeof window !== 'undefined') {
+        return window.location.origin;
+      }
+      return import.meta.env.VITE_APP_URL || '';
+    };
+    const shareLink = `${getOrigin()}/quiz/${quizId}`;
     navigator.clipboard.writeText(shareLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -76,6 +101,22 @@ export default function ShareQuiz() {
             {quiz.description && (
               <p className="text-gray-600 mt-2">{quiz.description}</p>
             )}
+            {quiz.expiresAt && timeRemaining && (
+              <div className="mt-4 flex items-center space-x-2 text-sm">
+                <Clock className="w-4 h-4 text-blue-600" />
+                <span className="text-gray-600">
+                  Link expires in: {timeRemaining.expired ? (
+                    <span className="text-red-600 font-semibold">Expired</span>
+                  ) : (
+                    <span className="font-semibold">
+                      {timeRemaining.days > 0 && `${timeRemaining.days} day${timeRemaining.days > 1 ? 's' : ''} `}
+                      {timeRemaining.hours > 0 && `${timeRemaining.hours} hour${timeRemaining.hours > 1 ? 's' : ''} `}
+                      {timeRemaining.minutes > 0 && `${timeRemaining.minutes} minute${timeRemaining.minutes > 1 ? 's' : ''}`}
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-xl p-6 mb-6">
@@ -85,7 +126,9 @@ export default function ShareQuiz() {
             <div className="flex items-center space-x-2">
               <input
                 type="text"
-                value={`${window.location.origin}/quiz/${quizId}`}
+                value={typeof window !== 'undefined' 
+                  ? `${window.location.origin}/quiz/${quizId}`
+                  : `${import.meta.env.VITE_APP_URL || ''}/quiz/${quizId}`}
                 readOnly
                 className="flex-1 px-4 py-3 bg-white border border-gray-300 rounded-lg text-gray-900"
               />

@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Brain, PlusCircle, BookOpen, Trophy, BarChart3, Settings } from 'lucide-react';
+import { Brain, PlusCircle, BookOpen, Trophy, BarChart3, Settings, User } from 'lucide-react';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -59,6 +59,13 @@ export default function Dashboard() {
               <span className="text-2xl font-bold text-gray-900">KnowIt</span>
             </div>
             <div className="flex items-center space-x-4">
+              <button
+                onClick={() => navigate('/profile')}
+                className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <User className="w-5 h-5" />
+                <span>Profile</span>
+              </button>
               <div className="text-right">
                 <p className="text-sm font-medium text-gray-900">{user?.name}</p>
                 <p className="text-xs text-gray-500">{user?.email}</p>

@@ -12,6 +12,7 @@ import ShareQuiz from './pages/ShareQuiz';
 import Leaderboard from './pages/Leaderboard';
 import Analytics from './pages/Analytics';
 import Admin from './pages/Admin';
+import Profile from './pages/Profile';
 // Import test utility for EmailJS debugging (available in console as window.testEmailJS)
 import './utils/testEmailJS';
 
@@ -71,6 +72,15 @@ function App() {
             element={
               <ProtectedRoute>
                 <Leaderboard />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <Profile />
               </ProtectedRoute>
             }
           />

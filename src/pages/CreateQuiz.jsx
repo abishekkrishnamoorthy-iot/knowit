@@ -14,7 +14,9 @@ export default function CreateQuiz() {
     description: '',
     difficulty: 'medium',
     numQuestions: 5,
-    mode: 'self'
+    mode: 'self',
+    expirationDays: 7, // Default 7 days expiration
+    expirationHours: 0
   });
 
   const handleChange = (e) => {
@@ -42,11 +44,21 @@ export default function CreateQuiz() {
         parseInt(formData.numQuestions)
       );
 
+      // Calculate expiration date for challenge mode
+      let expiresAt = null;
+      if (formData.mode === 'challenge') {
+        const expirationDate = new Date();
+        expirationDate.setDate(expirationDate.getDate() + parseInt(formData.expirationDays || 7));
+        expirationDate.setHours(expirationDate.getHours() + parseInt(formData.expirationHours || 0));
+        expiresAt = expirationDate.toISOString();
+      }
+
       const quiz = await storage.saveQuiz({
         ...formData,
         questions,
         createdBy: user.id,
-        createdByName: user.name
+        createdByName: user.name,
+        expiresAt
       });
 
       if (formData.mode === 'self') {
@@ -183,6 +195,43 @@ export default function CreateQuiz() {
                 </button>
               </div>
             </div>
+
+            {formData.mode === 'challenge' && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <label className="block text-sm font-medium text-gray-700 mb-4">
+                  Link Expiration Time
+                </label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Days</label>
+                    <input
+                      type="number"
+                      name="expirationDays"
+                      value={formData.expirationDays}
+                      onChange={handleChange}
+                      min="0"
+                      max="365"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Hours</label>
+                    <input
+                      type="number"
+                      name="expirationHours"
+                      value={formData.expirationHours}
+                      onChange={handleChange}
+                      min="0"
+                      max="23"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-600 mt-2">
+                  After expiration, top 3 scores will be emailed to you automatically.
+                </p>
+              </div>
+            )}
 
             <button
               type="submit"

@@ -5,10 +5,12 @@ import {
   signInWithPopup,
   signOut,
   onAuthStateChanged,
-  updateProfile
+  updateProfile,
+  deleteUser
 } from 'firebase/auth';
 import { ref, set, get } from 'firebase/database';
 import { auth, googleProvider, database } from '../config/firebase';
+import { storage } from '../utils/storage';
 import {
   createPendingUser,
   verifyPendingUserOTP,
@@ -255,6 +257,29 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const deleteAccount = async () => {
+    try {
+      if (!user) {
+        throw new Error('No user logged in');
+      }
+
+      // Delete user data from database
+      await storage.deleteUserAccount(user.id);
+
+      // Delete user from Firebase Auth
+      const firebaseUser = auth.currentUser;
+      if (firebaseUser) {
+        await deleteUser(firebaseUser);
+      }
+
+      // Clear user state
+      setUser(null);
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      throw new Error(error.message || 'Failed to delete account');
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -265,6 +290,7 @@ export const AuthProvider = ({ children }) => {
         resendVerificationCode,
         signInWithGoogle,
         logout,
+        deleteAccount,
         loading
       }}
     >

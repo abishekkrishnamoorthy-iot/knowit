@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { ArrowLeft, Clock, CheckCircle2, User } from 'lucide-react';
+import { ArrowLeft, Clock, CheckCircle2, User, AlertCircle } from 'lucide-react';
 import { storage } from '../utils/storage';
+import { isQuizExpired, getTimeRemaining } from '../utils/expirationService';
+import { sendLeaderboardEmail } from '../utils/emailService';
 
 export default function TakeQuiz() {
   const { quizId } = useParams();
+  const [searchParams] = useSearchParams();
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [quiz, setQuiz] = useState(null);
@@ -17,6 +20,27 @@ export default function TakeQuiz() {
   const [showNameModal, setShowNameModal] = useState(false);
   const [guestName, setGuestName] = useState('');
   const [nameError, setNameError] = useState('');
+  const [isExpired, setIsExpired] = useState(false);
+  const [timeRemaining, setTimeRemaining] = useState(null);
+
+  // Check if accessed from within app (via query param or referrer)
+  const isFromApp = () => {
+    // Check query parameter
+    if (searchParams.get('from') === 'app') return true;
+    
+    // Check referrer - if it's from the same origin, it's from within app
+    if (typeof window !== 'undefined' && document.referrer) {
+      try {
+        const referrerUrl = new URL(document.referrer);
+        const currentUrl = new URL(window.location.href);
+        if (referrerUrl.origin === currentUrl.origin) return true;
+      } catch (e) {
+        // Invalid referrer URL
+      }
+    }
+    
+    return false;
+  };
 
   useEffect(() => {
     const loadQuiz = async () => {
@@ -25,6 +49,27 @@ export default function TakeQuiz() {
         navigate('/browse-quizzes');
         return;
       }
+
+      // Check if quiz is expired
+      // If expired and accessed via direct link (not from app), block access
+      // If expired but accessed from within app, allow access
+      if (isQuizExpired(loadedQuiz) && loadedQuiz.mode === 'challenge') {
+        const fromApp = isFromApp();
+        if (!fromApp) {
+          // Block access if expired and accessed via direct link
+          setIsExpired(true);
+          setQuiz(loadedQuiz);
+          return;
+        }
+        // Allow access if from within app (expired quizzes can be taken from app)
+      }
+
+      // Calculate time remaining if expiration is set
+      if (loadedQuiz.expiresAt) {
+        const remaining = getTimeRemaining(loadedQuiz.expiresAt);
+        setTimeRemaining(remaining);
+      }
+
       setQuiz(loadedQuiz);
 
       // Wait for auth to finish loading before checking user status
@@ -109,6 +154,29 @@ export default function TakeQuiz() {
         totalQuestions: quiz.questions.length,
         timeTaken: (quiz.questions.length * 60) - timeLeft
       });
+
+      // Send leaderboard email if user completed their own quiz
+      if (user && user.id === quiz.createdBy) {
+        try {
+          const topScores = await storage.getTopScores(quiz.id, 3);
+          const appUrl = import.meta.env.VITE_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
+          
+          await sendLeaderboardEmail({
+            userName: user.name,
+            userEmail: user.email,
+            quizTitle: quiz.title,
+            quizDifficulty: quiz.difficulty,
+            yourScore: finalScore,
+            yourCorrect: correctCount,
+            totalQuestions: quiz.questions.length,
+            topScores,
+            appUrl
+          });
+        } catch (emailError) {
+          console.error('Error sending leaderboard email:', emailError);
+          // Don't block the UI if email fails
+        }
+      }
     } catch (error) {
       console.error('Error saving attempt:', error);
     }
@@ -153,6 +221,32 @@ export default function TakeQuiz() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  // Show expired message
+  if (isExpired) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center px-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-red-400 to-red-600 rounded-2xl mb-4">
+            <AlertCircle className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Quiz Link Expired</h1>
+          <p className="text-gray-600 mb-6">
+            This challenge quiz link has expired. The quiz creator has been notified with the top scores.
+            <br />
+            <br />
+            You can still access this quiz from within the app by browsing quizzes.
+          </p>
+          <button
+            onClick={() => navigate('/browse-quizzes')}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+          >
+            Browse Other Quizzes
+          </button>
+        </div>
       </div>
     );
   }

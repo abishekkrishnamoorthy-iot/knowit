@@ -2,6 +2,8 @@ const EMAILJS_API_URL = 'https://api.emailjs.com/api/v1.0/email/send';
 
 const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
 const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+// Leaderboard template ID for completion, expiration, and near-expiration emails
+const leaderboardTemplateId = import.meta.env.VITE_EMAILJS_LEADERBOARD_TEMPLATE_ID || 'template_mwmj7mv';
 const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
 
 const ensureEmailJsConfig = () => {
@@ -21,48 +23,7 @@ const ensureEmailJsConfig = () => {
  * @returns {Promise<Response>}
  */
 const sendEmailJSRequest = async (templateParams) => {
-  ensureEmailJsConfig();
-
-  const requestData = {
-    service_id: serviceId,
-    template_id: templateId,
-    user_id: publicKey,
-    template_params: templateParams
-  };
-
-  console.log('📧 EmailJS API Request:', {
-    service_id: serviceId,
-    template_id: templateId,
-    user_id: publicKey ? `${publicKey.substring(0, 15)}...` : '❌ MISSING',
-    template_params: templateParams
-  });
-
-  const response = await fetch(EMAILJS_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(requestData)
-  });
-
-  const responseText = await response.text();
-  
-  console.log('📧 EmailJS API Response:', {
-    status: response.status,
-    statusText: response.statusText,
-    text: responseText
-  });
-
-  if (!response.ok) {
-    throw new Error(`EmailJS API error: ${response.status} ${response.statusText} - ${responseText}`);
-  }
-
-  // EmailJS returns "OK" as text on success (status 200)
-  if (response.status === 200 && responseText === 'OK') {
-    return { status: 200, text: 'OK' };
-  } else {
-    throw new Error(`Unexpected EmailJS response: ${responseText}`);
-  }
+  return sendEmailJSRequestWithTemplate(templateParams, templateId);
 };
 
 /**
@@ -117,6 +78,323 @@ export const testEmailJSConfig = async (testEmail = 'test@example.com') => {
       success: false,
       message: errorMessage
     };
+  }
+};
+
+/**
+ * Format top scores as HTML for email template
+ */
+const formatTopScoresAsHTML = (topScores) => {
+  if (!topScores || topScores.length === 0) {
+    return '<p style="text-align: center; color: #6b7280; padding: 20px;">No attempts yet.</p>';
+  }
+
+  return topScores.map((score, index) => {
+    const rank = index + 1;
+    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉';
+    const rankClass = rank === 1 ? 'first' : rank === 2 ? 'second' : 'third';
+    
+    // Format time taken
+    const minutes = Math.floor(score.timeTaken / 60);
+    const seconds = score.timeTaken % 60;
+    const timeTaken = `${minutes}:${String(seconds).padStart(2, '0')}`;
+
+    return `
+      <div class="leaderboard-item ${rankClass}">
+        <div class="rank">${rank}</div>
+        <div class="medal">${medal}</div>
+        <div class="user-info">
+          <div class="user-name">${score.userName || 'Anonymous'}</div>
+          <div class="user-score">${score.correctAnswers}/${score.totalQuestions} correct • ${timeTaken}</div>
+        </div>
+        <div class="score-badge">${score.score}%</div>
+      </div>
+    `;
+  }).join('');
+};
+
+/**
+ * Format top scores as plain text
+ */
+const formatTopScoresAsText = (topScores) => {
+  if (!topScores || topScores.length === 0) {
+    return 'No attempts yet.';
+  }
+
+  return topScores.map((score, index) => {
+    const rank = index + 1;
+    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉';
+    return `${medal} ${rank}. ${score.userName || 'Anonymous'} - ${score.score}% (${score.correctAnswers}/${score.totalQuestions} correct)`;
+  }).join('\n');
+};
+
+/**
+ * Send expiration email with top scores (when quiz expires)
+ */
+export const sendExpirationEmail = async ({ creatorName, creatorEmail, quizTitle, quizDifficulty, expirationDate, topScores, totalAttempts, appUrl }) => {
+  try {
+    ensureEmailJsConfig();
+
+    const leaderboardHTML = topScores.length > 0 
+      ? `<div class="leaderboard-section">
+          <div class="leaderboard-title">Top Performers</div>
+          ${formatTopScoresAsHTML(topScores)}
+        </div>`
+      : '<p style="text-align: center; color: #6b7280; padding: 20px;">No attempts were made on this quiz.</p>';
+
+    const quizInfoHTML = `
+      ${quizDifficulty ? `<p><strong>Difficulty:</strong> ${quizDifficulty}</p>` : ''}
+      ${expirationDate ? `<p><strong>Expired:</strong> ${expirationDate}</p>` : ''}
+      <p><strong>Total Attempts:</strong> ${totalAttempts}</p>
+    `;
+
+    const templateParams = {
+      // Basic info
+      user_name: creatorName,
+      user_email: creatorEmail,
+      to_email: creatorEmail,
+      email_type: 'Challenge Quiz',
+      
+      // Quiz info
+      quiz_title: quizTitle,
+      quiz_difficulty: quizDifficulty ? `<p><strong>Difficulty:</strong> ${quizDifficulty}</p>` : '',
+      expiration_date: expirationDate ? `<p><strong>Expired:</strong> ${expirationDate}</p>` : '',
+      total_attempts: `<p><strong>Total Attempts:</strong> ${totalAttempts}</p>`,
+      
+      // Message
+      main_message: `Your challenge quiz "${quizTitle}" has expired. Here are the top ${Math.min(3, topScores.length)} scores from participants.`,
+      email_reason: 'you created a challenge quiz that has expired.',
+      
+      // HTML sections
+      leaderboard_html: leaderboardHTML,
+      expiration_notice_html: '',
+      stats_html: '',
+      cta_html: appUrl ? `<div style="text-align: center;"><a href="${appUrl}/leaderboard" class="cta-button">View Full Leaderboard</a></div>` : '',
+      
+      // App info
+      app_url: appUrl || ''
+    };
+
+    console.log('📧 Sending expiration email:', {
+      creatorEmail,
+      quizTitle,
+      topScoresCount: topScores.length
+    });
+
+    // Use leaderboard template ID if available, otherwise fallback to main template
+    const response = await sendEmailJSRequestWithTemplate(templateParams, leaderboardTemplateId);
+    
+    if (response.status === 200 && response.text === 'OK') {
+      console.log('✅ Expiration email sent successfully to:', creatorEmail);
+      return { success: true, message: 'Expiration email sent successfully' };
+    } else {
+      throw new Error(`Unexpected response: ${response.text}`);
+    }
+  } catch (error) {
+    console.error('Error sending expiration email:', error);
+    throw error;
+  }
+};
+
+/**
+ * Send leaderboard email when user completes their own quiz
+ */
+export const sendLeaderboardEmail = async ({ userName, userEmail, quizTitle, quizDifficulty, yourScore, yourCorrect, totalQuestions, topScores, appUrl }) => {
+  try {
+    ensureEmailJsConfig();
+
+    const leaderboardHTML = topScores.length > 0 
+      ? `<div class="leaderboard-section">
+          <div class="leaderboard-title">Top Performers</div>
+          ${formatTopScoresAsHTML(topScores)}
+        </div>`
+      : '<p style="text-align: center; color: #6b7280; padding: 20px;">No other attempts yet.</p>';
+
+    const statsHTML = `
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">Your Score</div>
+          <div class="stat-value">${yourScore}%</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Correct Answers</div>
+          <div class="stat-value">${yourCorrect}/${totalQuestions}</div>
+        </div>
+      </div>
+    `;
+
+    const quizInfoHTML = `
+      ${quizDifficulty ? `<p><strong>Difficulty:</strong> ${quizDifficulty}</p>` : ''}
+      <p><strong>Total Attempts:</strong> ${topScores.length}</p>
+    `;
+
+    const templateParams = {
+      // Basic info
+      user_name: userName,
+      user_email: userEmail,
+      to_email: userEmail,
+      email_type: 'Quiz Completion',
+      
+      // Quiz info
+      quiz_title: quizTitle,
+      quiz_difficulty: quizDifficulty ? `<p><strong>Difficulty:</strong> ${quizDifficulty}</p>` : '',
+      expiration_date: '',
+      total_attempts: `<p><strong>Total Attempts:</strong> ${topScores.length}</p>`,
+      
+      // Message
+      main_message: `Congratulations on completing "${quizTitle}"! Here's how you ranked among other participants.`,
+      email_reason: 'you completed a quiz.',
+      
+      // HTML sections
+      leaderboard_html: leaderboardHTML,
+      expiration_notice_html: '',
+      stats_html: statsHTML,
+      cta_html: appUrl ? `<div style="text-align: center;"><a href="${appUrl}/leaderboard" class="cta-button">View Full Leaderboard</a></div>` : '',
+      
+      // App info
+      app_url: appUrl || ''
+    };
+
+    console.log('📧 Sending leaderboard email:', {
+      userEmail,
+      quizTitle,
+      yourScore,
+      topScoresCount: topScores.length
+    });
+
+    const response = await sendEmailJSRequestWithTemplate(templateParams, leaderboardTemplateId);
+    
+    if (response.status === 200 && response.text === 'OK') {
+      console.log('✅ Leaderboard email sent successfully to:', userEmail);
+      return { success: true, message: 'Leaderboard email sent successfully' };
+    } else {
+      throw new Error(`Unexpected response: ${response.text}`);
+    }
+  } catch (error) {
+    console.error('Error sending leaderboard email:', error);
+    throw error;
+  }
+};
+
+/**
+ * Send near-expiration email with top 3 scores
+ */
+export const sendNearExpirationEmail = async ({ creatorName, creatorEmail, quizTitle, quizDifficulty, expirationDate, expirationTime, topScores, appUrl }) => {
+  try {
+    ensureEmailJsConfig();
+
+    const top3Scores = topScores.slice(0, 3);
+    const leaderboardHTML = top3Scores.length > 0 
+      ? `<div class="leaderboard-section">
+          <div class="leaderboard-title">Current Top 3</div>
+          ${formatTopScoresAsHTML(top3Scores)}
+        </div>`
+      : '<p style="text-align: center; color: #6b7280; padding: 20px;">No attempts yet.</p>';
+
+    const expirationNoticeHTML = `
+      <div class="expiration-notice">
+        <h3>⏰ Link Expiring Soon!</h3>
+        <p>Your challenge quiz link will expire soon.</p>
+        <div class="expiration-time">${expirationTime}</div>
+      </div>
+    `;
+
+    const quizInfoHTML = `
+      ${quizDifficulty ? `<p><strong>Difficulty:</strong> ${quizDifficulty}</p>` : ''}
+      ${expirationDate ? `<p><strong>Expires:</strong> ${expirationDate}</p>` : ''}
+      <p><strong>Total Attempts:</strong> ${topScores.length}</p>
+    `;
+
+    const templateParams = {
+      // Basic info
+      user_name: creatorName,
+      user_email: creatorEmail,
+      to_email: creatorEmail,
+      email_type: 'Challenge Reminder',
+      
+      // Quiz info
+      quiz_title: quizTitle,
+      quiz_difficulty: quizDifficulty ? `<p><strong>Difficulty:</strong> ${quizDifficulty}</p>` : '',
+      expiration_date: expirationDate ? `<p><strong>Expires:</strong> ${expirationDate}</p>` : '',
+      total_attempts: `<p><strong>Total Attempts:</strong> ${topScores.length}</p>`,
+      
+      // Message
+      main_message: `Your challenge quiz "${quizTitle}" is about to expire! Here are the current top 3 performers.`,
+      email_reason: 'you created a challenge quiz that is near expiration.',
+      
+      // HTML sections
+      leaderboard_html: leaderboardHTML,
+      expiration_notice_html: expirationNoticeHTML,
+      stats_html: '',
+      cta_html: appUrl ? `<div style="text-align: center;"><a href="${appUrl}/leaderboard" class="cta-button">View Full Leaderboard</a></div>` : '',
+      
+      // App info
+      app_url: appUrl || ''
+    };
+
+    console.log('📧 Sending near-expiration email:', {
+      creatorEmail,
+      quizTitle,
+      expirationTime
+    });
+
+    const response = await sendEmailJSRequestWithTemplate(templateParams, leaderboardTemplateId);
+    
+    if (response.status === 200 && response.text === 'OK') {
+      console.log('✅ Near-expiration email sent successfully to:', creatorEmail);
+      return { success: true, message: 'Near-expiration email sent successfully' };
+    } else {
+      throw new Error(`Unexpected response: ${response.text}`);
+    }
+  } catch (error) {
+    console.error('Error sending near-expiration email:', error);
+    throw error;
+  }
+};
+
+/**
+ * Send email with specific template ID
+ */
+const sendEmailJSRequestWithTemplate = async (templateParams, customTemplateId = null) => {
+  const templateToUse = customTemplateId || templateId;
+  
+  const requestData = {
+    service_id: serviceId,
+    template_id: templateToUse,
+    user_id: publicKey,
+    template_params: templateParams
+  };
+
+  console.log('📧 EmailJS API Request:', {
+    service_id: serviceId,
+    template_id: templateToUse,
+    user_id: publicKey ? `${publicKey.substring(0, 15)}...` : '❌ MISSING'
+  });
+
+  const response = await fetch(EMAILJS_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(requestData)
+  });
+
+  const responseText = await response.text();
+  
+  console.log('📧 EmailJS API Response:', {
+    status: response.status,
+    statusText: response.statusText,
+    text: responseText
+  });
+
+  if (!response.ok) {
+    throw new Error(`EmailJS API error: ${response.status} ${response.statusText} - ${responseText}`);
+  }
+
+  if (response.status === 200 && responseText === 'OK') {
+    return { status: 200, text: 'OK' };
+  } else {
+    throw new Error(`Unexpected EmailJS response: ${responseText}`);
   }
 };
 
